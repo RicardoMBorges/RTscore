@@ -629,27 +629,39 @@ def render_candidates_overview(candidates_df: pd.DataFrame):
 
     st.dataframe(candidates_df.drop(columns=["_mol"], errors="ignore"), use_container_width=True)
 
-
 def render_structure_gallery(feature_df: pd.DataFrame):
     st.subheader("Candidate structures")
     cols = st.columns(3)
+
     for idx, (_, row) in enumerate(feature_df.iterrows()):
         with cols[idx % 3]:
             st.markdown(f"**{row['candidate_name']}**")
+
             img = mol_to_pil(row["_mol"], size=(320, 220))
             if img is not None:
                 st.image(img)
-            st.caption(
-                f"Pred RT: {row['rt_pred']:.2f} | Obs RT: {row['observed_rt']:.2f if pd.notna(row['observed_rt']) else float('nan')}"
-            )
+
+            pred_rt = row["rt_pred"] if pd.notna(row["rt_pred"]) else np.nan
+            obs_rt = row["observed_rt"] if pd.notna(row["observed_rt"]) else np.nan
+
+            pred_rt_text = f"{pred_rt:.2f}" if pd.notna(pred_rt) else "NA"
+            obs_rt_text = f"{obs_rt:.2f}" if pd.notna(obs_rt) else "NA"
+
+            st.caption(f"Pred RT: {pred_rt_text} | Obs RT: {obs_rt_text}")
+
+            suspicion_label = row["suspicion_label"] if pd.notna(row["suspicion_label"]) else "unknown"
+            applicability = row["applicability"] if pd.notna(row["applicability"]) else "unknown"
+            suspicion_score = row["suspicion_score"] if pd.notna(row["suspicion_score"]) else np.nan
+            suspicion_score_text = f"{suspicion_score:.2f}" if pd.notna(suspicion_score) else "NA"
+
             st.write(
-                f"Suspicion: **{row['suspicion_label']}**  \
-Applicability: **{row['applicability']}**  \
-Score: **{row['suspicion_score']:.2f}**"
+                f"Suspicion: **{suspicion_label}**  \n"
+                f"Applicability: **{applicability}**  \n"
+                f"Score: **{suspicion_score_text}**"
             )
+
             st.code(str(row["smiles"]))
-
-
+            
 def build_download_csv(df: pd.DataFrame) -> bytes:
     export_df = df.drop(columns=["_mol"], errors="ignore").copy()
     return export_df.to_csv(index=False).encode("utf-8")
