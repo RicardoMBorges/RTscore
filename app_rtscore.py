@@ -986,7 +986,7 @@ def main():
 
     with tab4:
         st.subheader("Candidate plausibility")
-        st.expander.caption(
+        st.caption(
             "Use this plot to compare the selected candidate against the empirical distribution "
             "of the reference suspicion scores."
         )
