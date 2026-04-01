@@ -513,6 +513,7 @@ def plot_reference_distribution(reference_df: pd.DataFrame, selected_candidate_s
             x=float(selected_candidate_score),
             line_width=3,
             line_dash="dash",
+            color="red",
             annotation_text="Selected candidate",
         )
     return fig
