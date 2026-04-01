@@ -599,7 +599,7 @@ def sidebar_inputs():
     )
 
     show_only_valid = st.sidebar.checkbox("Filter to RDKit-valid structures only", value=True)
-    run_button = st.sidebar.button("Run analysis", type="primary")
+    run_button = st.sidebar.button("Run analysis", type="primary", use_container_width=True)
 
     st.sidebar.markdown("---")
     with st.sidebar.expander("CSV format examples"):
@@ -746,8 +746,11 @@ def main():
             st.exception(e)
             st.stop()
 
-    reference_result = results["reference"]
-    candidates_result = results["candidates"]
+    reference_result = st.session_state.get("reference_result")
+    candidates_result = st.session_state.get("candidates_result")
+
+    st.session_state["reference_result"] = reference_result
+    st.session_state["candidates_result"] = candidates_result
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Overview",
