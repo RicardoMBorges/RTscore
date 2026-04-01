@@ -26,7 +26,7 @@ except Exception as e:  # pragma: no cover
 # Page config
 # ============================================================
 st.set_page_config(
-    page_title="RT Plausibility for LC-MS (C18)",
+    page_title="RTscore for plausibility for Liquid Chromatography",
     page_icon="🧪",
     layout="wide",
 )
