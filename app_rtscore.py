@@ -746,8 +746,8 @@ def main():
             st.exception(e)
             st.stop()
 
-    reference_result = st.session_state.get("reference_result")
-    candidates_result = st.session_state.get("candidates_result")
+    reference_result = results["reference"]
+    candidates_result = results["candidates"]
 
     st.session_state["reference_result"] = reference_result
     st.session_state["candidates_result"] = candidates_result
