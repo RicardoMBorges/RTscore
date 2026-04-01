@@ -986,6 +986,10 @@ def main():
 
     with tab4:
         st.subheader("Candidate plausibility")
+        st.expander.caption(
+            "Use this plot to compare the selected candidate against the empirical distribution "
+            "of the reference suspicion scores."
+        )
         feature_ids = sorted(candidates_result["feature_id"].dropna().astype(str).unique().tolist())
         selected_feature = st.selectbox("Select feature", feature_ids, key="feature_selector")
         feature_df = candidates_result[candidates_result["feature_id"].astype(str) == selected_feature].copy()
