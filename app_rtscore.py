@@ -809,7 +809,7 @@ def main():
 
         st.dataframe(pred_table, use_container_width=True)
         
-)
+
     with tab4:
         st.subheader("Candidate plausibility")
         feature_ids = sorted(candidates_result["feature_id"].dropna().astype(str).unique().tolist())
