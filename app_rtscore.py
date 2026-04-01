@@ -995,7 +995,47 @@ def main():
             st.warning("No candidates available for the selected feature.")
         else:
             best_score = feature_df["suspicion_score"].iloc[0]
-            st.plotly_chart(plot_reference_distribution(reference_result, best_score), use_container_width=True)
+            dist_col1, dist_col2 = st.columns([2, 1])
+            
+            with dist_col1:
+                distribution_mode = st.selectbox(
+                    "Reference distribution plot type",
+                    ["Histogram", "Density"],
+                    index=0,
+                    help=(
+                        "Choose how to visualize the distribution of suspicion scores in the "
+                        "reference dataset. Histogram shows counts per bin. Density shows a "
+                        "smoothed count-like distribution. The red dashed line marks the "
+                        "selected candidate score."
+                    ),
+                    key="reference_distribution_mode",
+                )
+            
+            with dist_col2:
+                show_normal_curve = st.checkbox(
+                    "Show normal curve",
+                    value=False,
+                    help=(
+                        "Overlay a normal distribution fitted to the reference suspicion scores "
+                        "using the reference mean and standard deviation. This helps visualize "
+                        "how close the distribution is to a Gaussian shape."
+                    ),
+                    key="reference_distribution_normal_curve",
+                )
+            
+            st.plotly_chart(
+                plot_reference_distribution(
+                    reference_result,
+                    selected_candidate_score=best_score,
+                    view_mode=distribution_mode,
+                    show_normal_curve=show_normal_curve,
+                ),
+                use_container_width=True,
+            )
+
+
+
+            
             st.plotly_chart(plot_feature_candidates(feature_df, selected_feature), use_container_width=True)
             st.plotly_chart(plot_feature_score_bars(feature_df, selected_feature), use_container_width=True)
 
