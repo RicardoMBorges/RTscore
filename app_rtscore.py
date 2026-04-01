@@ -514,7 +514,7 @@ def plot_reference_distribution(
             reference_df,
             x="suspicion_score",
             nbins=25,
-            title="Reference suspicion score distribution",
+            title="Distribution of reference suspicion scores",
         )
         fig.update_layout(
             xaxis_title="Suspicion score",
@@ -534,7 +534,7 @@ def plot_reference_distribution(
             )
         )
         fig.update_layout(
-            title="Reference suspicion score distribution",
+            title="Distribution of reference suspicion scores",
             xaxis_title="Suspicion score",
             yaxis_title="Density",
         )
@@ -989,6 +989,11 @@ def main():
         st.caption(
             "Use this plot to compare the selected candidate against the empirical distribution "
             "of the reference suspicion scores."
+            "This plot shows how the suspicion scores of the reference compounds are distributed. "
+            "A candidate positioned near the center of the reference distribution is generally "
+            "more plausible, while a candidate located in the tails may behave as an outlier. "
+            "The optional normal curve is fitted from the empirical mean and standard deviation "
+            "of the reference scores."
         )
         feature_ids = sorted(candidates_result["feature_id"].dropna().astype(str).unique().tolist())
         selected_feature = st.selectbox("Select feature", feature_ids, key="feature_selector")
