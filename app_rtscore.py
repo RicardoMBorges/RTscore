@@ -547,6 +547,18 @@ def plot_feature_score_bars(feature_df: pd.DataFrame, feature_id: str):
     fig.update_layout(xaxis_title="Candidate", yaxis_title="Suspicion score")
     return fig
 
+# ============================================================
+# Load the logo LAABio
+from PIL import Image
+logo_LAABio = Image.open("static/LAABio.png")
+# Display the logo in the sidebar or header
+st.sidebar.image(logo_LAABio, width=300)
+
+# Load the logo DAFdiscovery
+logo = Image.open("static/RTscore.png")
+# Display the logo in the sidebar or header
+st.sidebar.image(logo, width=300)
+
 
 # ============================================================
 # UI sections
