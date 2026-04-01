@@ -622,14 +622,18 @@ def sidebar_inputs():
     }
 
 
-def render_reference_overview(reference_df: pd.DataFrame):
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Reference compounds", len(reference_df))
-    c2.metric("Median RT", f"{reference_df['rt'].median():.2f}")
-    c3.metric("Chemical classes", int(reference_df['class'].nunique()))
-    c4.metric("Valid SMILES", int(reference_df['rdkit_valid'].sum()))
+def render_candidates_overview(candidates_df: pd.DataFrame):
+    if candidates_df is None or candidates_df.empty:
+        st.warning("No candidate results available yet.")
+        return
 
-    st.dataframe(reference_df.drop(columns=["_mol"], errors="ignore"), use_container_width=True)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Candidate rows", len(candidates_df))
+    c2.metric("Features", int(candidates_df["feature_id"].nunique()))
+    c3.metric("Candidates / feature", f"{len(candidates_df) / max(candidates_df['feature_id'].nunique(), 1):.2f}")
+    c4.metric("Rows with observed RT", int(candidates_df["observed_rt"].notna().sum()))
+
+    st.dataframe(candidates_df.drop(columns=["_mol"], errors="ignore"), use_container_width=True)
 
 
 def render_candidates_overview(candidates_df: pd.DataFrame):
