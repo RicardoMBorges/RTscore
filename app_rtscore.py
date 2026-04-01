@@ -776,17 +776,40 @@ def main():
 
     with tab3:
         st.subheader("Prediction view")
+
         st.plotly_chart(
-            plot_rt_observed_vs_pred(candidates_result.dropna(subset=["observed_rt"]), "observed_rt", "Candidates: observed RT vs predicted RT"),
+            plot_rt_observed_vs_pred(
+                candidates_result.dropna(subset=["observed_rt"]),
+                "observed_rt",
+                "Candidates: observed RT vs predicted RT",
+            ),
             use_container_width=True,
         )
 
-        pred_table = candidates_result[[
-            "feature_id", "candidate_name", "observed_rt", "rt_pred", "abs_error_to_observed",
-            "suspicion_score", "suspicion_label", "applicability", "rank_source"
-        ]].sort_values(["feature_id", "suspicion_score", "nn_distance"], ascending=[True, True, True])
-        st.dataframe(pred_table, use_container_width=True)
+        sort_cols = ["feature_id", "suspicion_score"]
+        if "nn_distance" in candidates_result.columns:
+            sort_cols.append("nn_distance")
 
+        pred_table = (
+            candidates_result
+            .sort_values(sort_cols, ascending=[True] * len(sort_cols))[
+                [
+                    "feature_id",
+                    "candidate_name",
+                    "observed_rt",
+                    "rt_pred",
+                    "abs_error_to_observed",
+                    "suspicion_score",
+                    "suspicion_label",
+                    "applicability",
+                    "rank_source",
+                ]
+            ]
+        )
+
+        st.dataframe(pred_table, use_container_width=True)
+        
+)
     with tab4:
         st.subheader("Candidate plausibility")
         feature_ids = sorted(candidates_result["feature_id"].dropna().astype(str).unique().tolist())
