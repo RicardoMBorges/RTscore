@@ -499,24 +499,96 @@ def run_linear_pipeline(reference_df: pd.DataFrame, candidates_df: pd.DataFrame,
 # ============================================================
 # Plotting
 # ============================================================
-def plot_reference_distribution(reference_df: pd.DataFrame, selected_candidate_score: Optional[float] = None):
-    fig = px.histogram(
-        reference_df,
-        x="suspicion_score",
-        nbins=25,
-        title="Reference suspicion score distribution",
-    )
-    fig.update_layout(xaxis_title="Suspicion score", yaxis_title="Count")
+def plot_reference_distribution(
+    reference_df: pd.DataFrame,
+    selected_candidate_score: Optional[float] = None,
+    view_mode: str = "Histogram",
+    show_normal_curve: bool = False,
+):
+    score_series = pd.to_numeric(reference_df["suspicion_score"], errors="coerce").dropna()
+
+    fig = go.Figure()
+
+    if view_mode == "Histogram":
+        fig = px.histogram(
+            reference_df,
+            x="suspicion_score",
+            nbins=25,
+            title="Reference suspicion score distribution",
+        )
+        fig.update_layout(
+            xaxis_title="Suspicion score",
+            yaxis_title="Count",
+        )
+
+    elif view_mode == "Density":
+        hist_y, hist_x = np.histogram(score_series, bins=25, density=True)
+        x_centers = (hist_x[:-1] + hist_x[1:]) / 2
+
+        fig.add_trace(
+            go.Scatter(
+                x=x_centers,
+                y=hist_y,
+                mode="lines",
+                name="Density approximation",
+            )
+        )
+        fig.update_layout(
+            title="Reference suspicion score distribution",
+            xaxis_title="Suspicion score",
+            yaxis_title="Density",
+        )
+
+    if show_normal_curve and len(score_series) > 1:
+        mu = float(score_series.mean())
+        sigma = float(score_series.std(ddof=1))
+
+        if sigma > 0:
+            x_min = float(score_series.min())
+            x_max = float(score_series.max())
+            x_grid = np.linspace(x_min, x_max, 400)
+
+            normal_pdf = (
+                1 / (sigma * np.sqrt(2 * np.pi))
+            ) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
+
+            if view_mode == "Histogram":
+                # scale PDF to histogram counts
+                counts, bin_edges = np.histogram(score_series, bins=25)
+                bin_width = bin_edges[1] - bin_edges[0]
+                scaled_pdf = normal_pdf * len(score_series) * bin_width
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_grid,
+                        y=scaled_pdf,
+                        mode="lines",
+                        name="Normal curve",
+                        line=dict(color="red", width=3),
+                    )
+                )
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_grid,
+                        y=normal_pdf,
+                        mode="lines",
+                        name="Normal curve",
+                        line=dict(color="red", width=3),
+                    )
+                )
 
     if selected_candidate_score is not None and not pd.isna(selected_candidate_score):
         fig.add_vline(
             x=float(selected_candidate_score),
+            line_color="red",
             line_width=3,
             line_dash="dash",
-            line_color="red",
             annotation_text="Selected candidate",
             annotation_font_color="red",
+            annotation_position="top right",
         )
+
     return fig
 
 
