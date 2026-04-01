@@ -515,6 +515,7 @@ def plot_reference_distribution(reference_df: pd.DataFrame, selected_candidate_s
             line_dash="dash",
             line_color="red",
             annotation_text="Selected candidate",
+            annotation_font_color="red",
         )
     return fig
 
