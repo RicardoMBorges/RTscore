@@ -746,11 +746,44 @@ def main():
             st.exception(e)
             st.stop()
 
-    reference_result = results["reference"]
-    candidates_result = results["candidates"]
+    ###
+    if ui["run_button"]:
+        with st.spinner("Preparing data..."):
+            reference_df = prepare_reference_df(reference_raw)
+            candidates_df = prepare_candidates_df(candidates_raw)
 
-    st.session_state["reference_result"] = reference_result
-    st.session_state["candidates_result"] = candidates_result
+        if len(reference_df) < 5:
+            st.error("The reference dataset is too small after cleaning. Add more validated compounds.")
+            st.stop()
+
+        usable_descriptors = [d for d in selected_descriptors if d in reference_df.columns and d in candidates_df.columns]
+        if not usable_descriptors:
+            st.error("None of the selected descriptors are available.")
+            st.stop()
+
+        with st.spinner("Running model..."):
+            try:
+                if model_choice == "Weighted descriptor score":
+                    results = run_weighted_pipeline(reference_df, candidates_df, usable_descriptors)
+                else:
+                    results = run_linear_pipeline(reference_df, candidates_df, usable_descriptors)
+            except Exception as e:
+                st.exception(e)
+                st.stop()
+
+        st.session_state["reference_result"] = results["reference"]
+        st.session_state["candidates_result"] = results["candidates"]
+        st.session_state["model_name"] = results["model_name"]
+        st.session_state["residual_sd"] = results["residual_sd"]
+        st.session_state["results"] = results
+
+    if "reference_result" not in st.session_state or "candidates_result" not in st.session_state:
+        info_box("Configure inputs in the sidebar and click **Run analysis**.")
+        st.stop()
+
+    reference_result = st.session_state["reference_result"]
+    candidates_result = st.session_state["candidates_result"]
+    results = st.session_state["results"]
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Overview",
