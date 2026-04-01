@@ -127,7 +127,28 @@ def success_box(text: str) -> None:
 
 @st.cache_data(show_spinner=False)
 def load_csv(uploaded_file) -> pd.DataFrame:
-    return pd.read_csv(uploaded_file)
+    attempts = [
+        {"sep": None, "engine": "python"},
+        {"sep": ";", "engine": "python", "encoding": "utf-8-sig"},
+        {"sep": ";", "engine": "python", "encoding": "latin1"},
+        {"sep": ",", "engine": "python", "encoding": "utf-8-sig"},
+        {"sep": ",", "engine": "python", "encoding": "latin1"},
+    ]
+
+    last_error = None
+
+    for kwargs in attempts:
+        try:
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, **kwargs)
+            if df.shape[1] > 1:
+                return df
+        except Exception as e:
+            last_error = e
+
+    raise ValueError(
+        "Could not parse this CSV file. Please check the separator, encoding, and malformed rows."
+    ) from last_error
 
 
 @st.cache_data(show_spinner=False)
