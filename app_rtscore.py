@@ -715,8 +715,11 @@ def main():
     if not selected_descriptors:
         st.error("Select at least one descriptor.")
         st.stop()
-
-    if not ui["run_button"]:
+        
+    if ui["run_button"]:
+        st.session_state["run_analysis"] = True
+    
+    if not st.session_state.get("run_analysis", False):
         info_box("Configure inputs in the sidebar and click **Run analysis**.")
         st.stop()
 
