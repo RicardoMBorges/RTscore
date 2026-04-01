@@ -35,7 +35,7 @@ st.set_page_config(
 # ============================================================
 # Constants
 # ============================================================
-APP_TITLE = "RT Plausibility and RT Prediction for LC-MS (C18)"
+APP_TITLE = "RTscore for plausibility for LC"
 APP_SUBTITLE = (
     "Candidate structure filtering based on consistency between molecular "
     "descriptors and observed retention time."
