@@ -621,6 +621,18 @@ def sidebar_inputs():
         "use_demo": use_demo,
     }
 
+def render_reference_overview(reference_df: pd.DataFrame):
+    if reference_df is None or reference_df.empty:
+        st.warning("No reference results available yet.")
+        return
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Reference compounds", len(reference_df))
+    c2.metric("Median RT", f"{reference_df['rt'].median():.2f}")
+    c3.metric("Chemical classes", int(reference_df["class"].nunique()))
+    c4.metric("Valid SMILES", int(reference_df["rdkit_valid"].sum()))
+
+    st.dataframe(reference_df.drop(columns=["_mol"], errors="ignore"), use_container_width=True)
 
 def render_candidates_overview(candidates_df: pd.DataFrame):
     if candidates_df is None or candidates_df.empty:
