@@ -1088,9 +1088,23 @@ def main():
         with st.spinner("Running model..."):
             try:
                 if model_choice == "Weighted descriptor score":
-                    results = run_weighted_pipeline(reference_df, candidates_df, usable_descriptors)
+                    results = run_weighted_pipeline(
+                        reference_df,
+                        candidates_df,
+                        usable_descriptors,
+                        target_col,
+                        observed_col,
+                        pred_col,
+                    )
                 else:
-                    results = run_linear_pipeline(reference_df, candidates_df, usable_descriptors)
+                    results = run_linear_pipeline(
+                        reference_df,
+                        candidates_df,
+                        usable_descriptors,
+                        target_col,
+                        observed_col,
+                        pred_col,
+                    )
             except Exception as e:
                 st.exception(e)
                 st.stop()
