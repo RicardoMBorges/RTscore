@@ -114,6 +114,183 @@ F003,Chlorogenic acid,O=C(O)/C=C/c1ccc(O)c(O)c1O[C@@H]1C[C@](O)(C(=O)O)C[C@@H](O
 F003,Ferulic acid,COc1cc(/C=C/C(=O)O)ccc1O,2.35,phenolic_acid,[M-H]-,negative,Formula_match
 """
 
+TAB_EXPLANATIONS = {
+    "overview": """
+This tab summarizes the current analysis session.
+
+It reports:
+- the model used for prediction,
+- the prediction axis selected (RT or RI),
+- the residual spread of the reference model,
+- the thresholds used to convert the continuous suspicion score into categorical labels,
+- and quick summaries of both the reference and candidate datasets.
+
+Use this tab to confirm that the uploaded files, selected settings, and analysis mode are correct before interpreting the plots.
+""",
+    "reference_model": """
+This tab shows how well the reference compounds behave under the current model.
+
+The goal is to understand whether the selected molecular descriptors produce a reasonable relationship with the chosen chromatographic target (RT or RI).  
+A strong model should show:
+- a good alignment between observed and predicted values,
+- relatively small residuals,
+- and chemically interpretable descriptor contributions.
+
+Use this tab to judge whether the trained model is good enough to support plausibility scoring for the candidates.
+""",
+    "prediction_view": """
+This tab shows the predicted chromatographic behavior for the candidate structures.
+
+It compares observed versus predicted RT or RI for all candidate rows where both values are available, and it also lists the final candidate table with:
+- predicted value,
+- absolute error,
+- suspicion score,
+- categorical suspicion label,
+- applicability estimate,
+- and rank source.
+
+Use this tab to inspect the global prediction output before drilling down into one feature at a time.
+""",
+    "candidate_plausibility": """
+This tab is the core decision view for candidate ranking.
+
+For one selected feature, the app compares all associated candidate structures using:
+- the distribution of reference suspicion scores,
+- the predicted chromatographic value,
+- the absolute deviation from the observed value,
+- the suspicion score,
+- and the applicability domain estimate.
+
+Use this tab to decide which candidate is most chromatographically plausible for a given feature.
+""",
+    "structures": """
+This tab displays the candidate structures for a selected feature together with their predicted and observed chromatographic values.
+
+It is useful for visual inspection, especially when you want to compare:
+- scaffold differences,
+- substitution patterns,
+- relative plausibility labels,
+- and final suspicion scores.
+
+Use this tab when you want the chemical structures side by side instead of only numerical rankings.
+""",
+    "export": """
+This tab allows you to download the processed reference and candidate result tables.
+
+The exported files preserve the model outputs needed for later inspection, filtering, reporting, or integration with other metabolomics workflows.
+
+Use this tab to save the current analysis results after checking the model and candidate plausibility views.
+""",
+}
+
+PLOT_EXPLANATIONS = {
+    "reference_scatter": """
+This scatter plot compares observed versus predicted values for the reference dataset.
+
+Interpretation:
+- points close to the diagonal indicate good agreement,
+- systematic deviation from the diagonal suggests model bias,
+- wide dispersion suggests weak predictive consistency.
+
+A good reference model should show most points concentrated around the identity line.
+""",
+    "reference_weights": """
+This table summarizes the contribution of descriptors to the model.
+
+For the weighted descriptor model, larger absolute weights indicate stronger influence on the final descriptor score.  
+For the linear regression model, coefficients show the fitted relationship between each descriptor and the chromatographic target.
+
+Use this information to judge whether the model is chemically interpretable.
+""",
+    "reference_residuals": """
+This residual plot shows how much each reference compound deviates from the model prediction.
+
+Interpretation:
+- values near zero indicate good fit,
+- large positive or negative residuals indicate compounds not well explained by the model,
+- clusters of residuals can reveal systematic biases in specific chemical classes.
+
+This plot is useful for diagnosing model quality.
+""",
+    "candidate_scatter": """
+This scatter plot compares observed versus predicted values for the candidates.
+
+Interpretation:
+- candidates near the diagonal are more consistent with the model,
+- candidates far from the diagonal show larger chromatographic disagreement,
+- this plot gives a global overview before focusing on one feature.
+""",
+    "candidate_table": """
+This table reports the candidate-level prediction results.
+
+Important columns:
+- observed value: experimental RT or RI,
+- predicted value: model-estimated RT or RI,
+- abs_error_to_observed: absolute chromatographic mismatch,
+- suspicion_score: normalized deviation relative to the reference residual spread,
+- suspicion_label: categorical interpretation of the score,
+- applicability: distance-based estimate of whether the candidate lies inside the reference chemical space.
+
+Use this table for ranking and export.
+""",
+    "reference_distribution": """
+This plot shows the empirical distribution of suspicion scores in the reference dataset.
+
+Interpretation:
+- the red dashed line marks the selected candidate score,
+- the dotted threshold lines mark the current category boundaries,
+- the optional normal curve provides a visual approximation of Gaussian behavior.
+
+A candidate closer to the center of the reference distribution is generally more plausible than one located far into the tails.
+""",
+    "feature_map": """
+This feature-level plausibility map compares all candidate structures assigned to the selected feature.
+
+Interpretation:
+- x-axis: predicted RT or RI,
+- y-axis: suspicion score,
+- bubble size: nearest-neighbor distance in descriptor space,
+- color: categorical suspicion label.
+
+Candidates with low suspicion score and small nearest-neighbor distance are generally preferred.
+""",
+    "feature_bars": """
+This bar chart ranks the candidates for the selected feature by suspicion score.
+
+Interpretation:
+- lower bars indicate better chromatographic agreement,
+- the color shows the final categorical suspicion label,
+- this view is useful for quick ranking of candidates within one feature.
+""",
+    "feature_table": """
+This table provides the full numerical summary for the selected feature.
+
+It combines structural identity, chromatographic error, suspicion score, applicability, and canonical SMILES in one place.
+
+Use it as the detailed evidence table for reporting or manual review.
+""",
+    "structure_gallery": """
+This gallery shows the molecular structures associated with the selected feature.
+
+Each card displays:
+- the candidate name,
+- the predicted and observed RT or RI,
+- the final suspicion label,
+- the applicability estimate,
+- the suspicion score,
+- and the SMILES string.
+
+Use this section to visually compare structural hypotheses.
+""",
+    "export_section": """
+These download buttons export the processed result tables from the current analysis state.
+
+The reference export contains model-fit information for the reference compounds.  
+The candidate export contains the final plausibility scoring results for the uploaded candidates.
+
+Use these files for documentation, filtering, or downstream analysis.
+""",
+}
 
 # ============================================================
 # Helpers
@@ -129,6 +306,14 @@ def warn_box(text: str) -> None:
 def success_box(text: str) -> None:
     st.success(text)
 
+def explanation_box(title: str, text: str, expanded: bool = False) -> None:
+    with st.expander(title, expanded=False):
+        st.write(text)
+
+
+def explanation_markdown(title: str, text: str, expanded: bool = False) -> None:
+    with st.expander(title, expanded=False):
+        st.markdown(text)
 
 @st.cache_data(show_spinner=False)
 def load_csv(uploaded_file) -> pd.DataFrame:
