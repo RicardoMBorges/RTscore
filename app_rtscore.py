@@ -524,6 +524,9 @@ def run_weighted_pipeline(
     target_col: str,
     observed_col: str,
     pred_col: str,
+    plausible_threshold: float,
+    borderline_threshold: float,
+    suspicious_threshold: float,
 ):
     ref_scored, used_weights = build_weighted_score(reference_df, selected_descriptors)
     slope, intercept, residual_sd = fit_descriptor_score_to_target(ref_scored, target_col)
@@ -532,7 +535,14 @@ def run_weighted_pipeline(
     ref_scored["target_residual"] = ref_scored[target_col] - ref_scored[pred_col]
     ref_scored["abs_residual"] = ref_scored["target_residual"].abs()
     ref_scored["suspicion_score"] = ref_scored["abs_residual"] / max(residual_sd, 1e-6)
-    ref_scored["suspicion_label"] = ref_scored["suspicion_score"].apply(classify_suspicion)
+    ref_scored["suspicion_label"] = ref_scored["suspicion_score"].apply(
+        lambda x: classify_suspicion(
+            x,
+            plausible_threshold,
+            borderline_threshold,
+            suspicious_threshold,
+        )
+    )
 
     cand = candidates_df.copy()
     cand_score = np.zeros(len(cand), dtype=float)
@@ -551,7 +561,14 @@ def run_weighted_pipeline(
     cand["abs_error_to_observed"] = (cand[observed_col] - cand[pred_col]).abs()
     cand["residual_sd_reference"] = residual_sd
     cand["suspicion_score"] = cand["abs_error_to_observed"] / max(residual_sd, 1e-6)
-    cand["suspicion_label"] = cand["suspicion_score"].apply(classify_suspicion)
+    cand["suspicion_label"] = cand["suspicion_score"].apply(
+        lambda x: classify_suspicion(
+            x,
+            plausible_threshold,
+            borderline_threshold,
+            suspicious_threshold,
+        )
+    )
     cand["nn_distance"] = nearest_neighbor_distance(ref_scored, cand, selected_descriptors)
     cand["applicability"] = cand["nn_distance"].apply(classify_applicability)
 
