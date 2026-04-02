@@ -493,15 +493,24 @@ def classify_applicability(distance: float) -> str:
     return "outside"
 
 
-def classify_suspicion(score: float) -> str:
+def classify_suspicion(
+    score: float,
+    plausible_threshold: float,
+    borderline_threshold: float,
+    suspicious_threshold: float,
+) -> str:
     if pd.isna(score):
         return "unknown"
-    if score < 1.0:
+
+    if score < plausible_threshold:
         return "highly plausible"
-    if score < 2.0:
+
+    if score < borderline_threshold:
         return "plausible"
-    if score < 3.0:
+
+    if score < suspicious_threshold:
         return "borderline"
+
     return "suspicious"
 
 
@@ -1019,6 +1028,10 @@ def main():
     prediction_axis = ui["prediction_axis"]
     selected_descriptors = ui["descriptor_set"]
     model_choice = ui["model_choice"]
+
+    plausible_threshold = ui["plausible_threshold"]
+    borderline_threshold = ui["borderline_threshold"]
+    suspicious_threshold = ui["suspicious_threshold"]
 
     axis_config = get_target_columns(prediction_axis)
     target_col = axis_config["target_col"]
