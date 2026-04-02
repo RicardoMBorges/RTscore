@@ -1009,20 +1009,6 @@ def render_candidates_overview(candidates_df: pd.DataFrame):
     c1.metric("Candidate rows", len(candidates_df))
     c2.metric("Features", int(candidates_df["feature_id"].nunique()))
     c3.metric("Candidates / feature", f"{len(candidates_df) / max(candidates_df['feature_id'].nunique(), 1):.2f}")
-    c4.metric("Rows with observed RT", int(candidates_df["observed_rt"].notna().sum()))
-
-    st.dataframe(candidates_df.drop(columns=["_mol"], errors="ignore"), use_container_width=True)
-
-
-def render_candidates_overview(candidates_df: pd.DataFrame):
-    if candidates_df is None or candidates_df.empty:
-        st.warning("No candidate results available yet.")
-        return
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Candidate rows", len(candidates_df))
-    c2.metric("Features", int(candidates_df["feature_id"].nunique()))
-    c3.metric("Candidates / feature", f"{len(candidates_df) / max(candidates_df['feature_id'].nunique(), 1):.2f}")
 
     observed_ri_count = int(candidates_df["observed_ri"].notna().sum()) if "observed_ri" in candidates_df.columns else 0
     observed_rt_count = int(candidates_df["observed_rt"].notna().sum()) if "observed_rt" in candidates_df.columns else 0
@@ -1081,10 +1067,16 @@ def main():
 
     with st.expander("About this app"):
         st.write(
-            "This app evaluates whether a candidate structure is chromatographically plausible under a C18 LC-MS method by comparing observed RT against a descriptor-based expected RT."
+            "This app evaluates whether a candidate structure is chromatographically plausible "
+            "under a liquid chromatography method by comparing observed RT or RI against a "
+            "descriptor-based expected value."
         )
         if not RDKit_AVAILABLE:
-            st.warning(f"RDKit is not available in this environment. Structure rendering and descriptor calculation are disabled. Error: {RDKit_IMPORT_ERROR}")
+            st.warning(
+                f"RDKit is not available in this environment. "
+                f"Structure rendering and descriptor calculation are disabled. "
+                f"Error: {RDKit_IMPORT_ERROR}"
+            )
 
     ui = sidebar_inputs()
 
@@ -1118,7 +1110,10 @@ def main():
         st.stop()
 
     if target_col not in reference_raw.columns:
-        st.error(f"Reference file must contain the target column '{target_col}' for {prediction_axis} mode.")
+        st.error(
+            f"Reference file must contain the target column '{target_col}' "
+            f"for {prediction_axis} mode."
+        )
         st.stop()
 
     missing_cand = validate_columns(candidates_raw, REQUIRED_CANDIDATE_COLUMNS, "Candidate file")
@@ -1128,83 +1123,43 @@ def main():
     if not selected_descriptors:
         st.error("Select at least one descriptor.")
         st.stop()
-        
+
     if ui["run_button"]:
         st.session_state["run_analysis"] = True
-    
-    if not st.session_state.get("run_analysis", False):
-        info_box("Configure inputs in the sidebar and click **Run analysis**.")
-        st.stop()
 
-    with st.spinner("Preparing data..."):
-        reference_df = prepare_reference_df(reference_raw)
-        candidates_df = prepare_candidates_df(candidates_raw)
-
-    if prediction_axis == "Retention Index (RI)":
-        if observed_col not in candidates_df.columns:
-            candidates_df[observed_col] = np.nan
-
-        if candidates_df[observed_col].isna().all():
-            if calibrants_raw is None:
-                st.error("RI mode requires either 'observed_ri' in the candidate file or a calibrants CSV with columns 'rt' and 'index'.")
-                st.stop()
-
-            calibrants_df = normalize_columns(calibrants_raw)
-            try:
-                candidates_df = add_observed_ri_from_calibrants(candidates_df, calibrants_df)
-            except Exception as e:
-                st.exception(e)
-                st.stop()
-
-    if len(reference_df) < 5:
-        st.error("The reference dataset is too small after cleaning. Add more validated compounds.")
-        st.stop()
-
-    usable_descriptors = [d for d in selected_descriptors if d in reference_df.columns and d in candidates_df.columns]
-    if not usable_descriptors:
-        st.error("None of the selected descriptors are available.")
-        st.stop()
-    with st.spinner("Running model..."):
-        try:
-            if model_choice == "Weighted descriptor score":
-                results = run_weighted_pipeline(
-                    reference_df,
-                    candidates_df,
-                    usable_descriptors,
-                    target_col,
-                    observed_col,
-                    pred_col,
-                    plausible_threshold,
-                    borderline_threshold,
-                    suspicious_threshold,
-                )
-            else:
-                results = run_linear_pipeline(
-                    reference_df,
-                    candidates_df,
-                    usable_descriptors,
-                    target_col,
-                    observed_col,
-                    pred_col,
-                    plausible_threshold,
-                    borderline_threshold,
-                    suspicious_threshold,
-                )
-        except Exception as e:
-            st.exception(e)
-            st.stop()
-
-    ###
-    if ui["run_button"]:
         with st.spinner("Preparing data..."):
             reference_df = prepare_reference_df(reference_raw)
             candidates_df = prepare_candidates_df(candidates_raw)
+
+        if prediction_axis == "Retention Index (RI)":
+            if observed_col not in candidates_df.columns:
+                candidates_df[observed_col] = np.nan
+
+            if candidates_df[observed_col].isna().all():
+                if calibrants_raw is None:
+                    st.error(
+                        "RI mode requires either 'observed_ri' in the candidate file or "
+                        "a calibrants CSV with columns 'rt' and 'index'."
+                    )
+                    st.stop()
+
+                calibrants_df = normalize_columns(calibrants_raw)
+                try:
+                    candidates_df = add_observed_ri_from_calibrants(candidates_df, calibrants_df)
+                except Exception as e:
+                    st.exception(e)
+                    st.stop()
+
+        reference_df = reference_df.dropna(subset=[target_col]).copy()
 
         if len(reference_df) < 5:
             st.error("The reference dataset is too small after cleaning. Add more validated compounds.")
             st.stop()
 
-        usable_descriptors = [d for d in selected_descriptors if d in reference_df.columns and d in candidates_df.columns]
+        usable_descriptors = [
+            d for d in selected_descriptors
+            if d in reference_df.columns and d in candidates_df.columns
+        ]
         if not usable_descriptors:
             st.error("None of the selected descriptors are available.")
             st.stop()
@@ -1219,6 +1174,9 @@ def main():
                         target_col,
                         observed_col,
                         pred_col,
+                        plausible_threshold,
+                        borderline_threshold,
+                        suspicious_threshold,
                     )
                 else:
                     results = run_linear_pipeline(
@@ -1228,6 +1186,9 @@ def main():
                         target_col,
                         observed_col,
                         pred_col,
+                        plausible_threshold,
+                        borderline_threshold,
+                        suspicious_threshold,
                     )
             except Exception as e:
                 st.exception(e)
@@ -1235,17 +1196,38 @@ def main():
 
         st.session_state["reference_result"] = results["reference"]
         st.session_state["candidates_result"] = results["candidates"]
-        st.session_state["model_name"] = results["model_name"]
-        st.session_state["residual_sd"] = results["residual_sd"]
         st.session_state["results"] = results
+        st.session_state["target_col"] = target_col
+        st.session_state["observed_col"] = observed_col
+        st.session_state["pred_col"] = pred_col
+        st.session_state["axis_short"] = axis_short
+        st.session_state["axis_label"] = axis_label
+        st.session_state["prediction_axis"] = prediction_axis
+        st.session_state["plausible_threshold"] = plausible_threshold
+        st.session_state["borderline_threshold"] = borderline_threshold
+        st.session_state["suspicious_threshold"] = suspicious_threshold
 
-    if "reference_result" not in st.session_state or "candidates_result" not in st.session_state:
+    if not st.session_state.get("run_analysis", False):
+        info_box("Configure inputs in the sidebar and click **Run analysis**.")
+        st.stop()
+
+    if "reference_result" not in st.session_state or "candidates_result" not in st.session_state or "results" not in st.session_state:
         info_box("Configure inputs in the sidebar and click **Run analysis**.")
         st.stop()
 
     reference_result = st.session_state["reference_result"]
     candidates_result = st.session_state["candidates_result"]
     results = st.session_state["results"]
+
+    target_col = st.session_state.get("target_col", target_col)
+    observed_col = st.session_state.get("observed_col", observed_col)
+    pred_col = st.session_state.get("pred_col", pred_col)
+    axis_short = st.session_state.get("axis_short", axis_short)
+    axis_label = st.session_state.get("axis_label", axis_label)
+
+    plausible_threshold = st.session_state.get("plausible_threshold", plausible_threshold)
+    borderline_threshold = st.session_state.get("borderline_threshold", borderline_threshold)
+    suspicious_threshold = st.session_state.get("suspicious_threshold", suspicious_threshold)
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Overview",
@@ -1259,7 +1241,9 @@ def main():
     with tab1:
         st.subheader("Input overview")
         st.markdown(f"**Model used:** {results['model_name']}")
-        st.markdown(f"**Residual SD from reference set:** {results['residual_sd']:.3f} min")
+        st.markdown(f"**Prediction axis:** {st.session_state.get('prediction_axis', prediction_axis)}")
+        st.markdown(f"**Residual SD from reference set:** {results['residual_sd']:.3f}")
+
         st.markdown(
             f"**Suspicion thresholds:** "
             f"highly plausible < {plausible_threshold:.2f} | "
@@ -1278,6 +1262,7 @@ def main():
 
     with tab2:
         st.subheader("Reference model behavior")
+
         st.plotly_chart(
             plot_observed_vs_pred(
                 reference_result.dropna(subset=[target_col, pred_col]),
@@ -1291,7 +1276,10 @@ def main():
 
         if results["model_name"] == "Weighted descriptor score":
             slope, intercept = results["equation"]
-            st.write(f"Weighted score equation to RT: **RT_pred = {slope:.4f} × score + {intercept:.4f}**")
+            st.write(
+                f"Weighted score equation: "
+                f"**{pred_col} = {slope:.4f} × descriptor_score + {intercept:.4f}**"
+            )
             weights_df = pd.DataFrame({
                 "descriptor": list(results["weights"].keys()),
                 "weight": list(results["weights"].values()),
@@ -1315,16 +1303,20 @@ def main():
     with tab3:
         st.subheader("Prediction view")
 
-        st.plotly_chart(
-            plot_observed_vs_pred(
-                candidates_result.dropna(subset=[observed_col, pred_col]),
-                observed_col,
-                pred_col,
-                axis_label,
-                f"Candidates: observed {axis_short} vs predicted {axis_short}",
-            ),
-            use_container_width=True,
-        )
+        plot_df = candidates_result.dropna(subset=[observed_col, pred_col]).copy()
+        if plot_df.empty:
+            st.warning(f"No rows available with both {observed_col} and {pred_col}.")
+        else:
+            st.plotly_chart(
+                plot_observed_vs_pred(
+                    plot_df,
+                    observed_col,
+                    pred_col,
+                    axis_label,
+                    f"Candidates: observed {axis_short} vs predicted {axis_short}",
+                ),
+                use_container_width=True,
+            )
 
         sort_cols = ["feature_id", "suspicion_score"]
         if "nn_distance" in candidates_result.columns:
@@ -1348,104 +1340,135 @@ def main():
         )
 
         st.dataframe(pred_table, use_container_width=True)
-        
 
     with tab4:
         st.subheader("Candidate plausibility")
         st.caption(
             "Use this plot to compare the selected candidate against the empirical distribution "
-            "of the reference suspicion scores."
-            "This plot shows how the suspicion scores of the reference compounds are distributed. "
-            "A candidate positioned near the center of the reference distribution is generally "
-            "more plausible, while a candidate located in the tails may behave as an outlier. "
-            "The optional normal curve is fitted from the empirical mean and standard deviation "
-            "of the reference scores."
+            "of the reference suspicion scores. A candidate positioned near the center of the "
+            "reference distribution is generally more plausible, whereas a candidate in the tails "
+            "may behave as an outlier."
         )
+
         feature_ids = sorted(candidates_result["feature_id"].dropna().astype(str).unique().tolist())
-        selected_feature = st.selectbox("Select feature", feature_ids, key="feature_selector")
-        feature_df = candidates_result[candidates_result["feature_id"].astype(str) == selected_feature].copy()
-        feature_df = feature_df.sort_values(["suspicion_score", "nn_distance"], ascending=[True, True])
 
-        if feature_df.empty:
-            st.warning("No candidates available for the selected feature.")
+        if not feature_ids:
+            st.warning("No feature IDs found in the candidate table.")
         else:
-            best_score = feature_df["suspicion_score"].iloc[0]
-            dist_col1, dist_col2 = st.columns([2, 1])
-            
-            with dist_col1:
-                distribution_mode = st.selectbox(
-                    "Reference distribution plot type",
-                    ["Histogram", "Density"],
-                    index=0,
-                    help=(
-                        "Choose how to visualize the distribution of suspicion scores in the "
-                        "reference dataset. Histogram shows counts per bin. Density shows a "
-                        "smoothed count-like distribution. The red dashed line marks the "
-                        "selected candidate score."
+            selected_feature = st.selectbox("Select feature", feature_ids, key="feature_selector")
+
+            feature_df = candidates_result[
+                candidates_result["feature_id"].astype(str) == selected_feature
+            ].copy()
+
+            feature_df = feature_df.sort_values(["suspicion_score", "nn_distance"], ascending=[True, True])
+
+            if feature_df.empty:
+                st.warning("No candidates available for the selected feature.")
+            else:
+                best_score = feature_df["suspicion_score"].iloc[0]
+
+                dist_col1, dist_col2 = st.columns([2, 1])
+
+                with dist_col1:
+                    distribution_mode = st.selectbox(
+                        "Reference distribution plot type",
+                        ["Histogram", "Density"],
+                        index=0,
+                        help=(
+                            "Choose how to visualize the distribution of suspicion scores in the "
+                            "reference dataset. Histogram shows counts per bin. Density shows a "
+                            "smoothed count-like distribution. The red dashed line marks the "
+                            "selected candidate score."
+                        ),
+                        key="reference_distribution_mode",
+                    )
+
+                with dist_col2:
+                    show_normal_curve = st.checkbox(
+                        "Show normal curve",
+                        value=False,
+                        help=(
+                            "Overlay a normal distribution fitted to the reference suspicion scores "
+                            "using the reference mean and standard deviation."
+                        ),
+                        key="reference_distribution_normal_curve",
+                    )
+
+                st.plotly_chart(
+                    plot_reference_distribution(
+                        reference_result,
+                        selected_candidate_score=best_score,
+                        view_mode=distribution_mode,
+                        show_normal_curve=show_normal_curve,
+                        plausible_threshold=plausible_threshold,
+                        borderline_threshold=borderline_threshold,
+                        suspicious_threshold=suspicious_threshold,
                     ),
-                    key="reference_distribution_mode",
+                    use_container_width=True,
                 )
-            
-            with dist_col2:
-                show_normal_curve = st.checkbox(
-                    "Show normal curve",
-                    value=False,
-                    help=(
-                        "Overlay a normal distribution fitted to the reference suspicion scores "
-                        "using the reference mean and standard deviation. This helps visualize "
-                        "how close the distribution is to a Gaussian shape."
+
+                st.plotly_chart(
+                    plot_feature_candidates(
+                        feature_df,
+                        selected_feature,
+                        observed_col,
+                        pred_col,
+                        axis_short,
                     ),
-                    key="reference_distribution_normal_curve",
+                    use_container_width=True,
                 )
-            
-            st.plotly_chart(
-                plot_reference_distribution(
-                    reference_result,
-                    selected_candidate_score=best_score,
-                    view_mode=distribution_mode,
-                    show_normal_curve=show_normal_curve,
-                    plausible_threshold=plausible_threshold,
-                    borderline_threshold=borderline_threshold,
-                    suspicious_threshold=suspicious_threshold,
-                ),
-                use_container_width=True,
-            )
 
-            st.plotly_chart(
-                plot_feature_candidates(feature_df, selected_feature, observed_col, pred_col, axis_short),
-                use_container_width=True,
-            )
-            st.plotly_chart(plot_feature_score_bars(feature_df, selected_feature), use_container_width=True)
+                st.plotly_chart(
+                    plot_feature_score_bars(feature_df, selected_feature),
+                    use_container_width=True,
+                )
 
-            show_cols = [
-                "feature_id",
-                "candidate_name",
-                "candidate_class",
-                "rank_source",
-                observed_col,
-                pred_col,
-                "abs_error_to_observed",
-                "suspicion_score",
-                "suspicion_label",
-                "nn_distance",
-                "applicability",
-                "canonical_smiles",
-            ]
-            st.dataframe(feature_df[show_cols], use_container_width=True)
+                show_cols = [
+                    "feature_id",
+                    "candidate_name",
+                    "candidate_class",
+                    "rank_source",
+                    observed_col,
+                    pred_col,
+                    "abs_error_to_observed",
+                    "suspicion_score",
+                    "suspicion_label",
+                    "nn_distance",
+                    "applicability",
+                    "canonical_smiles",
+                ]
+                st.dataframe(feature_df[show_cols], use_container_width=True)
 
-            top_hit = feature_df.iloc[0]
-            st.success(
-                f"Top candidate for feature {selected_feature}: {top_hit['candidate_name']} | "
-                f"score = {top_hit['suspicion_score']:.2f} | label = {top_hit['suspicion_label']}"
-            )
+                top_hit = feature_df.iloc[0]
+                st.success(
+                    f"Top candidate for feature {selected_feature}: "
+                    f"{top_hit['candidate_name']} | "
+                    f"score = {top_hit['suspicion_score']:.2f} | "
+                    f"label = {top_hit['suspicion_label']}"
+                )
 
     with tab5:
         st.subheader("Structure viewer")
+
         feature_ids = sorted(candidates_result["feature_id"].dropna().astype(str).unique().tolist())
-        selected_feature_struct = st.selectbox("Select feature for structures", feature_ids, key="feature_structure_selector")
-        feature_df_struct = candidates_result[candidates_result["feature_id"].astype(str) == selected_feature_struct].copy()
-        feature_df_struct = feature_df_struct.sort_values(["suspicion_score", "nn_distance"], ascending=[True, True])
-        render_structure_gallery(feature_df_struct, observed_col, pred_col, axis_short)
+
+        if not feature_ids:
+            st.warning("No feature IDs found in the candidate table.")
+        else:
+            selected_feature_struct = st.selectbox(
+                "Select feature for structures",
+                feature_ids,
+                key="feature_structure_selector",
+            )
+
+            feature_df_struct = candidates_result[
+                candidates_result["feature_id"].astype(str) == selected_feature_struct
+            ].copy()
+
+            feature_df_struct = feature_df_struct.sort_values(["suspicion_score", "nn_distance"], ascending=[True, True])
+
+            render_structure_gallery(feature_df_struct, observed_col, pred_col, axis_short)
 
     with tab6:
         st.subheader("Export")
@@ -1472,9 +1495,9 @@ def main():
 
         st.markdown("### Notes")
         st.write(
-            "Recommended final use: combine exact mass, isotopic profile, fragmentation evidence, and RT plausibility in a single ranking workflow."
+            "Recommended final use: combine exact mass, isotopic profile, fragmentation evidence, "
+            "and RT/RI plausibility in a single ranking workflow."
         )
-
 
 if __name__ == "__main__":
     main()
