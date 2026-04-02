@@ -1656,7 +1656,7 @@ It shows how many candidate rows and unique features are present, and whether ob
 
     with tab5:
         st.subheader("Structure viewer")
-
+        explanation_markdown("About this tab", TAB_EXPLANATIONS["structures"], expanded=False)
         feature_ids = sorted(candidates_result["feature_id"].dropna().astype(str).unique().tolist())
 
         if not feature_ids:
@@ -1673,11 +1673,13 @@ It shows how many candidate rows and unique features are present, and whether ob
             ].copy()
 
             feature_df_struct = feature_df_struct.sort_values(["suspicion_score", "nn_distance"], ascending=[True, True])
-
+            explanation_markdown("About this structure gallery", PLOT_EXPLANATIONS["structure_gallery"], expanded=False)
             render_structure_gallery(feature_df_struct, observed_col, pred_col, axis_short)
 
     with tab6:
         st.subheader("Export")
+        explanation_markdown("About this tab", TAB_EXPLANATIONS["export"], expanded=False)
+        explanation_markdown("About these exports", PLOT_EXPLANATIONS["export_section"], expanded=False)
         export_reference = build_download_csv(reference_result)
         export_candidates = build_download_csv(candidates_result)
 
