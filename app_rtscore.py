@@ -1041,6 +1041,14 @@ logo_LAABio = Image.open("static/LAABio.png")
 # Display the logo in the sidebar or header
 st.sidebar.image(logo_LAABio, width=300)
 
+with st.sidebar:
+    st.markdown("### RTscore resources")
+
+    st.link_button(
+        "📖 Documentation",
+        "https://github.com/RicardoMBorges/RTscore/blob/main/README.md"
+    )
+
 # ============================================================
 # UI sections
 # ============================================================
