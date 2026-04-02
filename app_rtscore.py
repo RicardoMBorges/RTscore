@@ -1458,7 +1458,8 @@ It shows how many candidate rows and unique features are present, and whether ob
 
     with tab2:
         st.subheader("Reference model behavior")
-
+        explanation_markdown("About this tab", TAB_EXPLANATIONS["reference_model"], expanded=False)
+        explanation_markdown("About this plot: observed vs predicted reference values", PLOT_EXPLANATIONS["reference_scatter"], expanded=False)        
         st.plotly_chart(
             plot_observed_vs_pred(
                 reference_result.dropna(subset=[target_col, pred_col]),
@@ -1469,7 +1470,8 @@ It shows how many candidate rows and unique features are present, and whether ob
             ),
             use_container_width=True,
         )
-
+        
+        explanation_markdown("About the model equation and descriptor weights", PLOT_EXPLANATIONS["reference_weights"], expanded=False)
         if results["model_name"] == "Weighted descriptor score":
             slope, intercept = results["equation"]
             st.write(
@@ -1484,6 +1486,7 @@ It shows how many candidate rows and unique features are present, and whether ob
         else:
             st.dataframe(results["weights"], use_container_width=True)
 
+        explanation_markdown("About this plot: reference residuals", PLOT_EXPLANATIONS["reference_residuals"], expanded=False)
         st.plotly_chart(
             px.scatter(
                 reference_result,
@@ -1498,7 +1501,9 @@ It shows how many candidate rows and unique features are present, and whether ob
 
     with tab3:
         st.subheader("Prediction view")
+        explanation_markdown("About this tab", TAB_EXPLANATIONS["prediction_view"], expanded=False)
 
+        explanation_markdown("About this plot: observed vs predicted candidate values", PLOT_EXPLANATIONS["candidate_scatter"], expanded=False)        
         plot_df = candidates_result.dropna(subset=[observed_col, pred_col]).copy()
         if plot_df.empty:
             st.warning(f"No rows available with both {observed_col} and {pred_col}.")
@@ -1517,7 +1522,8 @@ It shows how many candidate rows and unique features are present, and whether ob
         sort_cols = ["feature_id", "suspicion_score"]
         if "nn_distance" in candidates_result.columns:
             sort_cols.append("nn_distance")
-
+            
+        explanation_markdown("About this table: candidate prediction results", PLOT_EXPLANATIONS["candidate_table"], expanded=False)
         pred_table = (
             candidates_result
             .sort_values(sort_cols, ascending=[True] * len(sort_cols))[
@@ -1539,6 +1545,7 @@ It shows how many candidate rows and unique features are present, and whether ob
 
     with tab4:
         st.subheader("Candidate plausibility")
+        explanation_markdown("About this tab", TAB_EXPLANATIONS["candidate_plausibility"], expanded=False)
         st.caption(
             "Use this plot to compare the selected candidate against the empirical distribution "
             "of the reference suspicion scores. A candidate positioned near the center of the "
@@ -1566,6 +1573,7 @@ It shows how many candidate rows and unique features are present, and whether ob
 
                 dist_col1, dist_col2 = st.columns([2, 1])
 
+                explanation_markdown("About this plot: reference suspicion score distribution", PLOT_EXPLANATIONS["reference_distribution"], expanded=False)
                 with dist_col1:
                     distribution_mode = st.selectbox(
                         "Reference distribution plot type",
@@ -1591,6 +1599,7 @@ It shows how many candidate rows and unique features are present, and whether ob
                         key="reference_distribution_normal_curve",
                     )
 
+                explanation_markdown("About this plot: feature suspicion score ranking", PLOT_EXPLANATIONS["feature_bars"], expanded=False)
                 st.plotly_chart(
                     plot_reference_distribution(
                         reference_result,
@@ -1634,6 +1643,7 @@ It shows how many candidate rows and unique features are present, and whether ob
                     "applicability",
                     "canonical_smiles",
                 ]
+                explanation_markdown("About this table: detailed feature-level evidence", PLOT_EXPLANATIONS["feature_table"], expanded=False)
                 st.dataframe(feature_df[show_cols], use_container_width=True)
 
                 top_hit = feature_df.iloc[0]
