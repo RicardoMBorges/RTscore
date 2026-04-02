@@ -36,6 +36,9 @@ st.set_page_config(
 # Constants
 # ============================================================
 APP_TITLE = "RTscore for plausibility for LC"
+
+APP_TITLE = "FALTA ADICIONAR O INDICE DE RETENçÂO"
+
 APP_SUBTITLE = (
     "Candidate structure filtering based on consistency between molecular "
     "descriptors and observed retention time."
