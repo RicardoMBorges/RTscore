@@ -1425,6 +1425,7 @@ def main():
 
     with tab1:
         st.subheader("Input overview")
+        explanation_markdown("About this tab", TAB_EXPLANATIONS["overview"], expanded=False)
         st.markdown(f"**Model used:** {results['model_name']}")
         st.markdown(f"**Prediction axis:** {st.session_state.get('prediction_axis', prediction_axis)}")
         st.markdown(f"**Residual SD from reference set:** {results['residual_sd']:.3f}")
@@ -1440,6 +1441,11 @@ def main():
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("### Reference dataset")
+            explanation_markdown("About the reference dataset table", """
+This table summarizes the processed reference compounds after descriptor calculation and filtering.
+
+It includes the chromatographic target used for modeling, structural metadata, and descriptor-derived fields.
+""", expanded=False)
             render_reference_overview(reference_result)
         with c2:
             st.markdown("### Candidate dataset")
