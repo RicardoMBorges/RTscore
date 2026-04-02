@@ -41,11 +41,16 @@ APP_SUBTITLE = (
     "descriptors and observed retention time."
 )
 
-REQUIRED_REFERENCE_COLUMNS = ["name", "smiles", "rt"]
-OPTIONAL_REFERENCE_COLUMNS = ["class", "adduct", "mode"]
+REQUIRED_REFERENCE_COLUMNS = ["name", "smiles"]
+OPTIONAL_REFERENCE_COLUMNS = ["rt", "ri", "class", "adduct", "mode"]
 
 REQUIRED_CANDIDATE_COLUMNS = ["feature_id", "candidate_name", "smiles"]
-OPTIONAL_CANDIDATE_COLUMNS = ["observed_rt", "candidate_class", "adduct", "mode", "rank_source"]
+OPTIONAL_CANDIDATE_COLUMNS = ["observed_rt", "observed_ri", "candidate_class", "adduct", "mode", "rank_source"]
+
+PREDICTION_AXIS_OPTIONS = [
+    "Retention Time (RT)",
+    "Retention Index (RI)",
+]
 
 DEFAULT_DESCRIPTOR_SET = [
     "MolWt",
@@ -161,6 +166,68 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     out.columns = [str(c).strip() for c in out.columns]
     return out
 
+def get_target_columns(prediction_axis: str) -> Dict[str, str]:
+    if prediction_axis == "Retention Index (RI)":
+        return {
+            "target_col": "ri",
+            "observed_col": "observed_ri",
+            "pred_col": "ri_pred",
+            "axis_short": "RI",
+            "axis_label": "Retention Index",
+        }
+
+    return {
+        "target_col": "rt",
+        "observed_col": "observed_rt",
+        "pred_col": "rt_pred",
+        "axis_short": "RT",
+        "axis_label": "Retention Time",
+    }
+
+
+def interpolate_ri_value(observed_rt: float, calibrants_df: pd.DataFrame) -> float:
+    if pd.isna(observed_rt):
+        return np.nan
+
+    cal = calibrants_df.copy()
+    cal = normalize_columns(cal)
+
+    required_cols = ["rt", "index"]
+    missing = [c for c in required_cols if c not in cal.columns]
+    if missing:
+        raise ValueError(f"Calibrant file is missing required columns: {missing}")
+
+    cal["rt"] = pd.to_numeric(cal["rt"], errors="coerce")
+    cal["index"] = pd.to_numeric(cal["index"], errors="coerce")
+    cal = cal.dropna(subset=["rt", "index"]).sort_values("rt").reset_index(drop=True)
+
+    if len(cal) < 2:
+        return np.nan
+
+    for i in range(len(cal) - 1):
+        rt1 = cal.loc[i, "rt"]
+        rt2 = cal.loc[i + 1, "rt"]
+        ri1 = cal.loc[i, "index"]
+        ri2 = cal.loc[i + 1, "index"]
+
+        if rt1 <= observed_rt <= rt2:
+            if rt2 == rt1:
+                return float(ri1)
+            return float(ri1 + (observed_rt - rt1) * (ri2 - ri1) / (rt2 - rt1))
+
+    return np.nan
+
+
+def add_observed_ri_from_calibrants(candidates_df: pd.DataFrame, calibrants_df: pd.DataFrame) -> pd.DataFrame:
+    out = candidates_df.copy()
+
+    if "observed_rt" not in out.columns:
+        out["observed_ri"] = np.nan
+        return out
+
+    out["observed_rt"] = pd.to_numeric(out["observed_rt"], errors="coerce")
+    out["observed_ri"] = out["observed_rt"].apply(lambda x: interpolate_ri_value(x, calibrants_df))
+    return out
 
 # ============================================================
 # RDKit utilities
@@ -266,15 +333,25 @@ def validate_columns(df: pd.DataFrame, required_cols: List[str], label: str) -> 
 def prepare_reference_df(df: pd.DataFrame) -> pd.DataFrame:
     out = normalize_columns(df)
     out = add_rdkit_fields(out, "smiles")
-    out["rt"] = pd.to_numeric(out["rt"], errors="coerce")
+
+    if "rt" in out.columns:
+        out["rt"] = pd.to_numeric(out["rt"], errors="coerce")
+    else:
+        out["rt"] = np.nan
+
+    if "ri" in out.columns:
+        out["ri"] = pd.to_numeric(out["ri"], errors="coerce")
+    else:
+        out["ri"] = np.nan
+
     if "class" not in out.columns:
         out["class"] = "unknown"
     if "adduct" not in out.columns:
         out["adduct"] = "unknown"
     if "mode" not in out.columns:
         out["mode"] = "unknown"
+
     out = out[out["rdkit_valid"]].copy()
-    out = out.dropna(subset=["rt"]).copy()
     out = out.reset_index(drop=True)
     return out
 
@@ -282,10 +359,17 @@ def prepare_reference_df(df: pd.DataFrame) -> pd.DataFrame:
 def prepare_candidates_df(df: pd.DataFrame) -> pd.DataFrame:
     out = normalize_columns(df)
     out = add_rdkit_fields(out, "smiles")
+
     if "observed_rt" in out.columns:
         out["observed_rt"] = pd.to_numeric(out["observed_rt"], errors="coerce")
     else:
         out["observed_rt"] = np.nan
+
+    if "observed_ri" in out.columns:
+        out["observed_ri"] = pd.to_numeric(out["observed_ri"], errors="coerce")
+    else:
+        out["observed_ri"] = np.nan
+
     if "candidate_class" not in out.columns:
         out["candidate_class"] = "unknown"
     if "adduct" not in out.columns:
@@ -294,10 +378,22 @@ def prepare_candidates_df(df: pd.DataFrame) -> pd.DataFrame:
         out["mode"] = "unknown"
     if "rank_source" not in out.columns:
         out["rank_source"] = "candidate"
+
     out = out[out["rdkit_valid"]].copy()
     out = out.reset_index(drop=True)
     return out
 
+def fit_descriptor_score_to_target(reference_df: pd.DataFrame, target_col: str) -> Tuple[float, float, float]:
+    work_df = reference_df.dropna(subset=["descriptor_score", target_col]).copy()
+
+    score = work_df["descriptor_score"].values
+    target = work_df[target_col].values
+
+    slope, intercept = np.polyfit(score, target, 1)
+    pred = slope * score + intercept
+    residual_sd = float(np.std(target - pred, ddof=1)) if len(work_df) > 2 else 0.2
+
+    return slope, intercept, residual_sd
 
 # ============================================================
 # Modeling
@@ -328,10 +424,10 @@ def build_weighted_score(reference_df: pd.DataFrame, selected_descriptors: List[
     return df, usable_weights
 
 
-def fit_linear_regression_numpy(reference_df: pd.DataFrame, selected_descriptors: List[str]) -> Dict[str, np.ndarray]:
-    model_df = reference_df.dropna(subset=selected_descriptors + ["rt"]).copy()
+def fit_linear_regression_numpy(reference_df: pd.DataFrame, selected_descriptors: List[str], target_col: str) -> Dict[str, np.ndarray]:
+    model_df = reference_df.dropna(subset=selected_descriptors + [target_col]).copy()
     X = model_df[selected_descriptors].astype(float).values
-    y = model_df["rt"].astype(float).values
+    y = model_df[target_col].astype(float).values
 
     if X.shape[0] < max(8, len(selected_descriptors) + 2):
         raise ValueError(
@@ -356,6 +452,7 @@ def fit_linear_regression_numpy(reference_df: pd.DataFrame, selected_descriptors
         "fitted_y": y_pred,
         "residuals": residuals,
         "train_index": model_df.index.values,
+        "target_col": target_col,
     }
 
 
@@ -366,15 +463,6 @@ def predict_linear_regression_numpy(df: pd.DataFrame, model: Dict[str, np.ndarra
     Xs_design = np.column_stack([np.ones(Xs.shape[0]), Xs])
     y_pred = Xs_design @ model["beta"]
     return y_pred
-
-
-def fit_descriptor_score_to_rt(reference_df: pd.DataFrame) -> Tuple[float, float, float]:
-    score = reference_df["descriptor_score"].values
-    rt = reference_df["rt"].values
-    slope, intercept = np.polyfit(score, rt, 1)
-    pred = slope * score + intercept
-    residual_sd = float(np.std(rt - pred, ddof=1)) if len(reference_df) > 2 else 0.2
-    return slope, intercept, residual_sd
 
 
 def nearest_neighbor_distance(train_df: pd.DataFrame, target_df: pd.DataFrame, descriptors: List[str]) -> np.ndarray:
@@ -420,18 +508,26 @@ def classify_suspicion(score: float) -> str:
 # ============================================================
 # Main scoring logic
 # ============================================================
-def run_weighted_pipeline(reference_df: pd.DataFrame, candidates_df: pd.DataFrame, selected_descriptors: List[str]):
+def run_weighted_pipeline(
+    reference_df: pd.DataFrame,
+    candidates_df: pd.DataFrame,
+    selected_descriptors: List[str],
+    target_col: str,
+    observed_col: str,
+    pred_col: str,
+):
     ref_scored, used_weights = build_weighted_score(reference_df, selected_descriptors)
-    slope, intercept, residual_sd = fit_descriptor_score_to_rt(ref_scored)
+    slope, intercept, residual_sd = fit_descriptor_score_to_target(ref_scored, target_col)
 
-    ref_scored["rt_pred"] = slope * ref_scored["descriptor_score"] + intercept
-    ref_scored["rt_residual"] = ref_scored["rt"] - ref_scored["rt_pred"]
-    ref_scored["abs_residual"] = ref_scored["rt_residual"].abs()
+    ref_scored[pred_col] = slope * ref_scored["descriptor_score"] + intercept
+    ref_scored["target_residual"] = ref_scored[target_col] - ref_scored[pred_col]
+    ref_scored["abs_residual"] = ref_scored["target_residual"].abs()
     ref_scored["suspicion_score"] = ref_scored["abs_residual"] / max(residual_sd, 1e-6)
     ref_scored["suspicion_label"] = ref_scored["suspicion_score"].apply(classify_suspicion)
 
     cand = candidates_df.copy()
     cand_score = np.zeros(len(cand), dtype=float)
+
     for desc, w in used_weights.items():
         mu = ref_scored[desc].mean()
         sd = ref_scored[desc].std(ddof=0)
@@ -442,8 +538,8 @@ def run_weighted_pipeline(reference_df: pd.DataFrame, candidates_df: pd.DataFram
         cand_score += z * w
 
     cand["descriptor_score"] = cand_score
-    cand["rt_pred"] = slope * cand["descriptor_score"] + intercept
-    cand["abs_error_to_observed"] = (cand["observed_rt"] - cand["rt_pred"]).abs()
+    cand[pred_col] = slope * cand["descriptor_score"] + intercept
+    cand["abs_error_to_observed"] = (cand[observed_col] - cand[pred_col]).abs()
     cand["residual_sd_reference"] = residual_sd
     cand["suspicion_score"] = cand["abs_error_to_observed"] / max(residual_sd, 1e-6)
     cand["suspicion_label"] = cand["suspicion_score"].apply(classify_suspicion)
@@ -457,24 +553,35 @@ def run_weighted_pipeline(reference_df: pd.DataFrame, candidates_df: pd.DataFram
         "residual_sd": residual_sd,
         "equation": (slope, intercept),
         "model_name": "Weighted descriptor score",
+        "target_col": target_col,
+        "observed_col": observed_col,
+        "pred_col": pred_col,
     }
 
 
-def run_linear_pipeline(reference_df: pd.DataFrame, candidates_df: pd.DataFrame, selected_descriptors: List[str]):
-    model = fit_linear_regression_numpy(reference_df, selected_descriptors)
+def run_linear_pipeline(
+    reference_df: pd.DataFrame,
+    candidates_df: pd.DataFrame,
+    selected_descriptors: List[str],
+    target_col: str,
+    observed_col: str,
+    pred_col: str,
+):
+    model = fit_linear_regression_numpy(reference_df, selected_descriptors, target_col)
 
     ref = reference_df.copy()
     pred_ref = predict_linear_regression_numpy(ref, model)
-    ref["rt_pred"] = pred_ref
-    ref["rt_residual"] = ref["rt"] - ref["rt_pred"]
-    residual_sd = float(np.std(ref.loc[model["train_index"], "rt_residual"], ddof=1)) if len(model["train_index"]) > 2 else 0.25
-    ref["abs_residual"] = ref["rt_residual"].abs()
+    ref[pred_col] = pred_ref
+    ref["target_residual"] = ref[target_col] - ref[pred_col]
+
+    residual_sd = float(np.std(ref.loc[model["train_index"], "target_residual"], ddof=1)) if len(model["train_index"]) > 2 else 0.25
+    ref["abs_residual"] = ref["target_residual"].abs()
     ref["suspicion_score"] = ref["abs_residual"] / max(residual_sd, 1e-6)
     ref["suspicion_label"] = ref["suspicion_score"].apply(classify_suspicion)
 
     cand = candidates_df.copy()
-    cand["rt_pred"] = predict_linear_regression_numpy(cand, model)
-    cand["abs_error_to_observed"] = (cand["observed_rt"] - cand["rt_pred"]).abs()
+    cand[pred_col] = predict_linear_regression_numpy(cand, model)
+    cand["abs_error_to_observed"] = (cand[observed_col] - cand[pred_col]).abs()
     cand["residual_sd_reference"] = residual_sd
     cand["suspicion_score"] = cand["abs_error_to_observed"] / max(residual_sd, 1e-6)
     cand["suspicion_label"] = cand["suspicion_score"].apply(classify_suspicion)
@@ -493,6 +600,9 @@ def run_linear_pipeline(reference_df: pd.DataFrame, candidates_df: pd.DataFrame,
         "residual_sd": residual_sd,
         "equation": None,
         "model_name": "Linear regression (numpy)",
+        "target_col": target_col,
+        "observed_col": observed_col,
+        "pred_col": pred_col,
     }
 
 
@@ -592,40 +702,56 @@ def plot_reference_distribution(
     return fig
 
 
-def plot_rt_observed_vs_pred(df: pd.DataFrame, observed_col: str, title: str):
+def plot_observed_vs_pred(df: pd.DataFrame, observed_col: str, pred_col: str, axis_label: str, title: str):
     fig = px.scatter(
         df,
         x=observed_col,
-        y="rt_pred",
+        y=pred_col,
         hover_data=[c for c in ["name", "candidate_name", "feature_id", "suspicion_label"] if c in df.columns],
         title=title,
     )
-    min_v = np.nanmin([df[observed_col].min(), df["rt_pred"].min()])
-    max_v = np.nanmax([df[observed_col].max(), df["rt_pred"].max()])
-    fig.add_shape(type="line", x0=min_v, y0=min_v, x1=max_v, y1=max_v)
-    fig.update_layout(xaxis_title="Observed RT", yaxis_title="Predicted RT")
+
+    clean_df = df.dropna(subset=[observed_col, pred_col]).copy()
+    if not clean_df.empty:
+        min_v = np.nanmin([clean_df[observed_col].min(), clean_df[pred_col].min()])
+        max_v = np.nanmax([clean_df[observed_col].max(), clean_df[pred_col].max()])
+        fig.add_shape(type="line", x0=min_v, y0=min_v, x1=max_v, y1=max_v)
+
+    fig.update_layout(
+        xaxis_title=f"Observed {axis_label}",
+        yaxis_title=f"Predicted {axis_label}",
+    )
     return fig
 
 
-def plot_feature_candidates(feature_df: pd.DataFrame, feature_id: str):
+def plot_feature_candidates(feature_df: pd.DataFrame, feature_id: str, observed_col: str, pred_col: str, axis_label: str):
     sort_df = feature_df.sort_values(["suspicion_score", "nn_distance"], ascending=[True, True]).copy()
     sort_df["candidate_label"] = sort_df["candidate_name"].astype(str)
 
     fig = px.scatter(
         sort_df,
-        x="rt_pred",
+        x=pred_col,
         y="suspicion_score",
         size="nn_distance",
         color="suspicion_label",
-        hover_data=["candidate_name", "observed_rt", "applicability", "rank_source"],
+        hover_data=["candidate_name", observed_col, "applicability", "rank_source"],
         title=f"Candidate plausibility map for feature {feature_id}",
         text="candidate_label",
     )
-    obs_rt = sort_df["observed_rt"].dropna()
-    if not obs_rt.empty:
-        fig.add_vline(x=float(obs_rt.iloc[0]), line_dash="dash", annotation_text="Observed RT")
+
+    obs_vals = sort_df[observed_col].dropna()
+    if not obs_vals.empty:
+        fig.add_vline(
+            x=float(obs_vals.iloc[0]),
+            line_dash="dash",
+            annotation_text=f"Observed {axis_label}",
+        )
+
     fig.update_traces(textposition="top center")
-    fig.update_layout(xaxis_title="Predicted RT", yaxis_title="Suspicion score")
+    fig.update_layout(
+        xaxis_title=f"Predicted {axis_label}",
+        yaxis_title="Suspicion score",
+    )
     return fig
 
 
@@ -666,24 +792,45 @@ def sidebar_inputs():
     if use_demo:
         reference_df = load_demo_csv(DEMO_REFERENCE_CSV)
         candidates_df = load_demo_csv(DEMO_CANDIDATES_CSV)
+        calibrants_df = None
         st.sidebar.caption("Demo reference and candidate files loaded.")
     else:
         ref_upload = st.sidebar.file_uploader(
             "Upload reference CSV",
             type=["csv"],
-            help="Required columns: name, smiles, rt",
+            help="Required columns: name, smiles, and either rt or ri",
             key="reference_upload",
         )
         cand_upload = st.sidebar.file_uploader(
             "Upload candidate CSV",
             type=["csv"],
-            help="Required columns: feature_id, candidate_name, smiles. Optional: observed_rt",
+            help="Required columns: feature_id, candidate_name, smiles. Optional: observed_rt, observed_ri",
             key="candidate_upload",
         )
+
         reference_df = load_csv(ref_upload) if ref_upload is not None else None
         candidates_df = load_csv(cand_upload) if cand_upload is not None else None
+        calibrants_df = None
 
     st.sidebar.markdown("---")
+    st.sidebar.subheader("Prediction settings")
+
+    prediction_axis = st.sidebar.selectbox(
+        "Prediction axis",
+        PREDICTION_AXIS_OPTIONS,
+        index=0,
+        help="Choose whether the model should work with retention time (RT) or retention index (RI).",
+    )
+
+    if prediction_axis == "Retention Index (RI)" and not use_demo:
+        calibrant_upload = st.sidebar.file_uploader(
+            "Upload calibrants CSV",
+            type=["csv"],
+            help="Required columns: rt,index. Used to interpolate observed RI from observed RT when observed_ri is absent.",
+            key="calibrant_upload",
+        )
+        calibrants_df = load_csv(calibrant_upload) if calibrant_upload is not None else None
+
     st.sidebar.subheader("Model settings")
     model_choice = st.sidebar.selectbox("Model", MODEL_OPTIONS, index=0)
 
@@ -703,12 +850,14 @@ def sidebar_inputs():
 
     with st.sidebar.expander("How to cite / note"):
         st.write(
-            "Use this app as an internal plausibility tool. RT consistency should support, not replace, exact mass, isotope pattern, and MS/MS evidence."
+            "Use this app as an internal plausibility tool. RT or RI consistency should support, not replace, exact mass, isotope pattern, and MS/MS evidence."
         )
 
     return {
         "reference_df": reference_df,
         "candidates_df": candidates_df,
+        "calibrants_df": calibrants_df,
+        "prediction_axis": prediction_axis,
         "model_choice": model_choice,
         "descriptor_set": descriptor_set,
         "show_only_valid": show_only_valid,
@@ -723,7 +872,15 @@ def render_reference_overview(reference_df: pd.DataFrame):
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Reference compounds", len(reference_df))
-    c2.metric("Median RT", f"{reference_df['rt'].median():.2f}")
+
+    if "ri" in reference_df.columns and reference_df["ri"].notna().any():
+        median_value = reference_df["ri"].median()
+        median_label = "Median RI"
+    else:
+        median_value = reference_df["rt"].median()
+        median_label = "Median RT"
+
+    c2.metric(median_label, f"{median_value:.2f}")
     c3.metric("Chemical classes", int(reference_df["class"].nunique()))
     c4.metric("Valid SMILES", int(reference_df["rdkit_valid"].sum()))
 
@@ -744,15 +901,26 @@ def render_candidates_overview(candidates_df: pd.DataFrame):
 
 
 def render_candidates_overview(candidates_df: pd.DataFrame):
+    if candidates_df is None or candidates_df.empty:
+        st.warning("No candidate results available yet.")
+        return
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Candidate rows", len(candidates_df))
-    c2.metric("Features", int(candidates_df['feature_id'].nunique()))
+    c2.metric("Features", int(candidates_df["feature_id"].nunique()))
     c3.metric("Candidates / feature", f"{len(candidates_df) / max(candidates_df['feature_id'].nunique(), 1):.2f}")
-    c4.metric("Rows with observed RT", int(candidates_df['observed_rt'].notna().sum()))
+
+    observed_ri_count = int(candidates_df["observed_ri"].notna().sum()) if "observed_ri" in candidates_df.columns else 0
+    observed_rt_count = int(candidates_df["observed_rt"].notna().sum()) if "observed_rt" in candidates_df.columns else 0
+
+    if observed_ri_count > 0:
+        c4.metric("Rows with observed RI", observed_ri_count)
+    else:
+        c4.metric("Rows with observed RT", observed_rt_count)
 
     st.dataframe(candidates_df.drop(columns=["_mol"], errors="ignore"), use_container_width=True)
 
-def render_structure_gallery(feature_df: pd.DataFrame):
+def render_structure_gallery(feature_df: pd.DataFrame, observed_col: str, pred_col: str, axis_short: str):
     st.subheader("Candidate structures")
     cols = st.columns(3)
 
@@ -764,13 +932,13 @@ def render_structure_gallery(feature_df: pd.DataFrame):
             if img is not None:
                 st.image(img)
 
-            pred_rt = row["rt_pred"] if pd.notna(row["rt_pred"]) else np.nan
-            obs_rt = row["observed_rt"] if pd.notna(row["observed_rt"]) else np.nan
+            pred_val = row[pred_col] if pd.notna(row[pred_col]) else np.nan
+            obs_val = row[observed_col] if pd.notna(row[observed_col]) else np.nan
 
-            pred_rt_text = f"{pred_rt:.2f}" if pd.notna(pred_rt) else "NA"
-            obs_rt_text = f"{obs_rt:.2f}" if pd.notna(obs_rt) else "NA"
+            pred_text = f"{pred_val:.2f}" if pd.notna(pred_val) else "NA"
+            obs_text = f"{obs_val:.2f}" if pd.notna(obs_val) else "NA"
 
-            st.caption(f"Pred RT: {pred_rt_text} | Obs RT: {obs_rt_text}")
+            st.caption(f"Pred {axis_short}: {pred_text} | Obs {axis_short}: {obs_text}")
 
             suspicion_label = row["suspicion_label"] if pd.notna(row["suspicion_label"]) else "unknown"
             applicability = row["applicability"] if pd.notna(row["applicability"]) else "unknown"
@@ -808,8 +976,17 @@ def main():
 
     reference_raw = ui["reference_df"]
     candidates_raw = ui["candidates_df"]
+    calibrants_raw = ui["calibrants_df"]
+    prediction_axis = ui["prediction_axis"]
     selected_descriptors = ui["descriptor_set"]
     model_choice = ui["model_choice"]
+
+    axis_config = get_target_columns(prediction_axis)
+    target_col = axis_config["target_col"]
+    observed_col = axis_config["observed_col"]
+    pred_col = axis_config["pred_col"]
+    axis_short = axis_config["axis_short"]
+    axis_label = axis_config["axis_label"]
 
     if reference_raw is None or candidates_raw is None:
         info_box("Upload both the reference CSV and the candidate CSV, or enable the demo files in the sidebar.")
@@ -819,8 +996,15 @@ def main():
     candidates_raw = normalize_columns(candidates_raw)
 
     missing_ref = validate_columns(reference_raw, REQUIRED_REFERENCE_COLUMNS, "Reference file")
+    if missing_ref:
+        st.stop()
+
+    if target_col not in reference_raw.columns:
+        st.error(f"Reference file must contain the target column '{target_col}' for {prediction_axis} mode.")
+        st.stop()
+
     missing_cand = validate_columns(candidates_raw, REQUIRED_CANDIDATE_COLUMNS, "Candidate file")
-    if missing_ref or missing_cand:
+    if missing_cand:
         st.stop()
 
     if not selected_descriptors:
@@ -838,6 +1022,22 @@ def main():
         reference_df = prepare_reference_df(reference_raw)
         candidates_df = prepare_candidates_df(candidates_raw)
 
+    if prediction_axis == "Retention Index (RI)":
+        if observed_col not in candidates_df.columns:
+            candidates_df[observed_col] = np.nan
+
+        if candidates_df[observed_col].isna().all():
+            if calibrants_raw is None:
+                st.error("RI mode requires either 'observed_ri' in the candidate file or a calibrants CSV with columns 'rt' and 'index'.")
+                st.stop()
+
+            calibrants_df = normalize_columns(calibrants_raw)
+            try:
+                candidates_df = add_observed_ri_from_calibrants(candidates_df, calibrants_df)
+            except Exception as e:
+                st.exception(e)
+                st.stop()
+
     if len(reference_df) < 5:
         st.error("The reference dataset is too small after cleaning. Add more validated compounds.")
         st.stop()
@@ -846,13 +1046,26 @@ def main():
     if not usable_descriptors:
         st.error("None of the selected descriptors are available.")
         st.stop()
-
     with st.spinner("Running model..."):
         try:
             if model_choice == "Weighted descriptor score":
-                results = run_weighted_pipeline(reference_df, candidates_df, usable_descriptors)
+                results = run_weighted_pipeline(
+                    reference_df,
+                    candidates_df,
+                    usable_descriptors,
+                    target_col,
+                    observed_col,
+                    pred_col,
+                )
             else:
-                results = run_linear_pipeline(reference_df, candidates_df, usable_descriptors)
+                results = run_linear_pipeline(
+                    reference_df,
+                    candidates_df,
+                    usable_descriptors,
+                    target_col,
+                    observed_col,
+                    pred_col,
+                )
         except Exception as e:
             st.exception(e)
             st.stop()
@@ -921,7 +1134,13 @@ def main():
     with tab2:
         st.subheader("Reference model behavior")
         st.plotly_chart(
-            plot_rt_observed_vs_pred(reference_result, "rt", "Reference compounds: observed RT vs predicted RT"),
+            plot_observed_vs_pred(
+                reference_result.dropna(subset=[target_col, pred_col]),
+                target_col,
+                pred_col,
+                axis_label,
+                f"Reference compounds: observed {axis_short} vs predicted {axis_short}",
+            ),
             use_container_width=True,
         )
 
@@ -939,11 +1158,11 @@ def main():
         st.plotly_chart(
             px.scatter(
                 reference_result,
-                x="rt",
-                y="rt_residual",
+                x=target_col,
+                y="target_residual",
                 color="class",
                 hover_data=["name", "canonical_smiles"],
-                title="Reference residuals by observed RT",
+                title=f"Reference residuals by observed {axis_short}",
             ),
             use_container_width=True,
         )
@@ -952,10 +1171,12 @@ def main():
         st.subheader("Prediction view")
 
         st.plotly_chart(
-            plot_rt_observed_vs_pred(
-                candidates_result.dropna(subset=["observed_rt"]),
-                "observed_rt",
-                "Candidates: observed RT vs predicted RT",
+            plot_observed_vs_pred(
+                candidates_result.dropna(subset=[observed_col, pred_col]),
+                observed_col,
+                pred_col,
+                axis_label,
+                f"Candidates: observed {axis_short} vs predicted {axis_short}",
             ),
             use_container_width=True,
         )
@@ -970,8 +1191,8 @@ def main():
                 [
                     "feature_id",
                     "candidate_name",
-                    "observed_rt",
-                    "rt_pred",
+                    observed_col,
+                    pred_col,
                     "abs_error_to_observed",
                     "suspicion_score",
                     "suspicion_label",
@@ -1045,13 +1266,25 @@ def main():
 
 
             
-            st.plotly_chart(plot_feature_candidates(feature_df, selected_feature), use_container_width=True)
+            st.plotly_chart(
+                plot_feature_candidates(feature_df, selected_feature, observed_col, pred_col, axis_short),
+                use_container_width=True,
+            )
             st.plotly_chart(plot_feature_score_bars(feature_df, selected_feature), use_container_width=True)
 
             show_cols = [
-                "feature_id", "candidate_name", "candidate_class", "rank_source", "observed_rt", "rt_pred",
-                "abs_error_to_observed", "suspicion_score", "suspicion_label", "nn_distance", "applicability",
-                "canonical_smiles"
+                "feature_id",
+                "candidate_name",
+                "candidate_class",
+                "rank_source",
+                observed_col,
+                pred_col,
+                "abs_error_to_observed",
+                "suspicion_score",
+                "suspicion_label",
+                "nn_distance",
+                "applicability",
+                "canonical_smiles",
             ]
             st.dataframe(feature_df[show_cols], use_container_width=True)
 
@@ -1067,7 +1300,7 @@ def main():
         selected_feature_struct = st.selectbox("Select feature for structures", feature_ids, key="feature_structure_selector")
         feature_df_struct = candidates_result[candidates_result["feature_id"].astype(str) == selected_feature_struct].copy()
         feature_df_struct = feature_df_struct.sort_values(["suspicion_score", "nn_distance"], ascending=[True, True])
-        render_structure_gallery(feature_df_struct)
+        render_structure_gallery(feature_df_struct, observed_col, pred_col, axis_short)
 
     with tab6:
         st.subheader("Export")
