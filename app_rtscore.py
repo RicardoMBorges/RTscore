@@ -840,6 +840,42 @@ def sidebar_inputs():
         default=DEFAULT_DESCRIPTOR_SET,
     )
 
+    st.sidebar.markdown("### Suspicion label thresholds")
+
+    with st.sidebar.expander("Help – suspicion label thresholds"):
+        st.write(
+            "These thresholds define how the continuous suspicion score is converted "
+            "into categorical labels. Lower values mean more plausible candidates. "
+            "Adjust the cutoffs to make the classification more strict or more permissive."
+        )
+
+    plausible_threshold = st.sidebar.slider(
+        "Plausible upper threshold",
+        min_value=0.0,
+        max_value=5.0,
+        value=1.0,
+        step=0.05,
+        help="Candidates with suspicion score below this value will be labeled as highly plausible.",
+    )
+
+    borderline_threshold = st.sidebar.slider(
+        "Borderline upper threshold",
+        min_value=0.0,
+        max_value=5.0,
+        value=2.0,
+        step=0.05,
+        help="Candidates with suspicion score between the plausible threshold and this value will be labeled as plausible.",
+    )
+
+    suspicious_threshold = st.sidebar.slider(
+        "Suspicious upper threshold",
+        min_value=0.0,
+        max_value=5.0,
+        value=3.0,
+        step=0.05,
+        help="Candidates with suspicion score between the borderline threshold and this value will be labeled as borderline. Above this value they will be labeled as suspicious.",
+    )
+
     show_only_valid = st.sidebar.checkbox("Filter to RDKit-valid structures only", value=True)
     run_button = st.sidebar.button("Run analysis", type="primary", use_container_width=True)
 
