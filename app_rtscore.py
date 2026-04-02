@@ -592,6 +592,9 @@ def run_linear_pipeline(
     target_col: str,
     observed_col: str,
     pred_col: str,
+    plausible_threshold: float,
+    borderline_threshold: float,
+    suspicious_threshold: float,
 ):
     model = fit_linear_regression_numpy(reference_df, selected_descriptors, target_col)
 
@@ -603,14 +606,28 @@ def run_linear_pipeline(
     residual_sd = float(np.std(ref.loc[model["train_index"], "target_residual"], ddof=1)) if len(model["train_index"]) > 2 else 0.25
     ref["abs_residual"] = ref["target_residual"].abs()
     ref["suspicion_score"] = ref["abs_residual"] / max(residual_sd, 1e-6)
-    ref["suspicion_label"] = ref["suspicion_score"].apply(classify_suspicion)
+    ref["suspicion_label"] = ref["suspicion_score"].apply(
+        lambda x: classify_suspicion(
+            x,
+            plausible_threshold,
+            borderline_threshold,
+            suspicious_threshold,
+        )
+    )
 
     cand = candidates_df.copy()
     cand[pred_col] = predict_linear_regression_numpy(cand, model)
     cand["abs_error_to_observed"] = (cand[observed_col] - cand[pred_col]).abs()
     cand["residual_sd_reference"] = residual_sd
     cand["suspicion_score"] = cand["abs_error_to_observed"] / max(residual_sd, 1e-6)
-    cand["suspicion_label"] = cand["suspicion_score"].apply(classify_suspicion)
+    cand["suspicion_label"] = cand["suspicion_score"].apply(
+        lambda x: classify_suspicion(
+            x,
+            plausible_threshold,
+            borderline_threshold,
+            suspicious_threshold,
+        )
+    )
     cand["nn_distance"] = nearest_neighbor_distance(reference_df, cand, selected_descriptors)
     cand["applicability"] = cand["nn_distance"].apply(classify_applicability)
 
@@ -640,6 +657,9 @@ def plot_reference_distribution(
     selected_candidate_score: Optional[float] = None,
     view_mode: str = "Histogram",
     show_normal_curve: bool = False,
+    plausible_threshold: Optional[float] = None,
+    borderline_threshold: Optional[float] = None,
+    suspicious_threshold: Optional[float] = None,
 ):
     score_series = pd.to_numeric(reference_df["suspicion_score"], errors="coerce").dropna()
 
@@ -724,7 +744,36 @@ def plot_reference_distribution(
             annotation_font_color="red",
             annotation_position="top right",
         )
+    if plausible_threshold is not None:
+        fig.add_vline(
+            x=float(plausible_threshold),
+            line_color="green",
+            line_width=2,
+            line_dash="dot",
+            annotation_text="Highly plausible threshold",
+            annotation_font_color="green",
+        )
 
+    if borderline_threshold is not None:
+        fig.add_vline(
+            x=float(borderline_threshold),
+            line_color="orange",
+            line_width=2,
+            line_dash="dot",
+            annotation_text="Plausible threshold",
+            annotation_font_color="orange",
+        )
+
+    if suspicious_threshold is not None:
+        fig.add_vline(
+            x=float(suspicious_threshold),
+            line_color="red",
+            line_width=2,
+            line_dash="dot",
+            annotation_text="Borderline threshold",
+            annotation_font_color="red",
+        )
+    
     return fig
 
 
@@ -1125,6 +1174,9 @@ def main():
                     target_col,
                     observed_col,
                     pred_col,
+                    plausible_threshold,
+                    borderline_threshold,
+                    suspicious_threshold,
                 )
             else:
                 results = run_linear_pipeline(
@@ -1134,6 +1186,9 @@ def main():
                     target_col,
                     observed_col,
                     pred_col,
+                    plausible_threshold,
+                    borderline_threshold,
+                    suspicious_threshold,
                 )
         except Exception as e:
             st.exception(e)
@@ -1205,6 +1260,13 @@ def main():
         st.subheader("Input overview")
         st.markdown(f"**Model used:** {results['model_name']}")
         st.markdown(f"**Residual SD from reference set:** {results['residual_sd']:.3f} min")
+        st.markdown(
+            f"**Suspicion thresholds:** "
+            f"highly plausible < {plausible_threshold:.2f} | "
+            f"plausible < {borderline_threshold:.2f} | "
+            f"borderline < {suspicious_threshold:.2f} | "
+            f"suspicious ≥ {suspicious_threshold:.2f}"
+        )
 
         c1, c2 = st.columns(2)
         with c1:
@@ -1342,13 +1404,13 @@ def main():
                     selected_candidate_score=best_score,
                     view_mode=distribution_mode,
                     show_normal_curve=show_normal_curve,
+                    plausible_threshold=plausible_threshold,
+                    borderline_threshold=borderline_threshold,
+                    suspicious_threshold=suspicious_threshold,
                 ),
                 use_container_width=True,
             )
 
-
-
-            
             st.plotly_chart(
                 plot_feature_candidates(feature_df, selected_feature, observed_col, pred_col, axis_short),
                 use_container_width=True,
