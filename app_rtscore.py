@@ -1449,6 +1449,11 @@ It includes the chromatographic target used for modeling, structural metadata, a
             render_reference_overview(reference_result)
         with c2:
             st.markdown("### Candidate dataset")
+            explanation_markdown("About the candidate dataset table", """
+This table summarizes the processed candidate structures after descriptor calculation and filtering.
+
+It shows how many candidate rows and unique features are present, and whether observed RT or RI values are available.
+""", expanded=False)
             render_candidates_overview(candidates_result)
 
     with tab2:
