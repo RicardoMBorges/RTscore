@@ -1051,6 +1051,14 @@ with st.sidebar:
         "https://github.com/RicardoMBorges/RTscore/blob/main/README.md"
     )
 
+
+with st.sidebar:
+    #st.markdown("### RTscore resources")
+    st.link_button(
+        "📖 Documentação (Pt)",
+        "https://github.com/RicardoMBorges/RTscore/blob/main/README_PT.md"
+    )
+
 # ============================================================
 # UI sections
 # ============================================================
